@@ -1,0 +1,21 @@
+# build artifacts
+build/
+obj/
+*.o
+*.apk
+*.idsig
+*.keystore
+*.dex
+!prebuilt/classes_patched.dex
+
+# local dumps / game files (never commit)
+dump.cs
+*.xapk
+libil2cpp.so
+global-metadata.dat
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.vs/
+.idea/
