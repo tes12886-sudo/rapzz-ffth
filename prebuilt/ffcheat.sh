@@ -51,8 +51,9 @@ echo "[RAPZZ] pid = $PID"
 # wait for the process to settle (il2cpp loads shortly after)
 sleep 3
 
-"$INJ" "$PID" "$DST_LIB"
+"$INJ" "$PID" "$DST_LIB" > $TMP/rapzz.log 2>&1
 RC=$?
+cat $TMP/rapzz.log
 if [ $RC -eq 0 ]; then
   echo "[RAPZZ] done. menu auto-opens; 5-finger tap toggles it."
 else

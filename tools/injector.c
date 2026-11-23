@@ -17,13 +17,15 @@
 #include <sys/mman.h>
 #include <elf.h>
 #include <linux/elf.h>
+#include <sys/syscall.h>
 
 #ifndef NT_PRSTATUS
 #define NT_PRSTATUS 1
 #endif
 
-extern ssize_t process_vm_writev(pid_t, const struct iovec *, unsigned long,
-                                 const struct iovec *, unsigned long, unsigned long);
+#ifndef __NR_process_vm_writev
+#define __NR_process_vm_writev 271
+#endif
 
 struct a64_regs {
     uint64_t regs[31];
@@ -130,11 +132,15 @@ int main(int argc, char **argv) {
     }
     g_pid = atoi(argv[1]);
     const char *so = argv[2];
+    setvbuf(stderr, NULL, _IONBF, 0);
+    setvbuf(stdout, NULL, _IONBF, 0);
+    fprintf(stderr, "[*] pid=%d so=%s\n", g_pid, so);
 
     char libc_path[512] = {0};
     uintptr_t libc_base = module_base(g_pid, "libc.so", libc_path, sizeof libc_path);
     if (!libc_base) { fprintf(stderr, "[-] libc base not found\n"); return 1; }
     if (!libc_path[0]) snprintf(libc_path, sizeof libc_path, "/system/lib64/libc.so");
+    fprintf(stderr, "[*] libc base=%lx path=%s\n", (unsigned long)libc_base, libc_path);
 
     uintptr_t off_mmap = symbol_offset(libc_path, "mmap");
     uintptr_t off_dlopen = symbol_offset(libc_path, "dlopen");
@@ -151,6 +157,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     wait_stop();
+    fprintf(stderr, "[*] attached\n");
 
     struct a64_regs orig;
     if (ptrace_getregs(&orig) < 0) {
@@ -170,12 +177,13 @@ int main(int argc, char **argv) {
     }
 
     // write the .so path into that page
+    fprintf(stderr, "[*] target mmap=%lx\n", (unsigned long)mem);
     char path[512];
     snprintf(path, sizeof path, "%s", so);
     size_t plen = strlen(path) + 1;
     struct iovec local = { path, plen };
     struct iovec remote = { (void *)mem, plen };
-    if (process_vm_writev(g_pid, &local, 1, &remote, 1, 0) != (ssize_t)plen) {
+    if (syscall(__NR_process_vm_writev, g_pid, &local, 1, &remote, 1, 0) != (ssize_t)plen) {
         fprintf(stderr, "[-] process_vm_writev failed: %s\n", strerror(errno));
         ptrace_setregs(&orig);
         ptrace(PTRACE_DETACH, g_pid, 0, 0);
