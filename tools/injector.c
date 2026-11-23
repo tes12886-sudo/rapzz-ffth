@@ -143,14 +143,22 @@ int main(int argc, char **argv) {
     fprintf(stderr, "[*] libc base=%lx path=%s\n", (unsigned long)libc_base, libc_path);
 
     uintptr_t off_mmap = symbol_offset(libc_path, "mmap");
-    uintptr_t off_dlopen = symbol_offset(libc_path, "dlopen");
+    // dlopen lives in libdl.so on modern Android (libc.so does not export it)
+    char libdl_path[512] = {0};
+    uintptr_t libdl_base = module_base(g_pid, "libdl.so", libdl_path, sizeof libdl_path);
+    if (!libdl_base) { fprintf(stderr, "[-] libdl base not found\n"); ptrace(PTRACE_DETACH, g_pid, 0, 0); return 1; }
+    if (!libdl_path[0]) snprintf(libdl_path, sizeof libdl_path, "/system/lib64/libdl.so");
+    uintptr_t off_dlopen = symbol_offset(libdl_path, "dlopen");
     if (!off_mmap || !off_dlopen) {
-        fprintf(stderr, "[-] symbol resolve failed (mmap=%lx dlopen=%lx) from %s\n",
-                (unsigned long)off_mmap, (unsigned long)off_dlopen, libc_path);
+        fprintf(stderr, "[-] symbol resolve failed (mmap=%lx dlopen=%lx) libc=%s libdl=%s\n",
+                (unsigned long)off_mmap, (unsigned long)off_dlopen, libc_path, libdl_path);
+        ptrace(PTRACE_DETACH, g_pid, 0, 0);
         return 1;
     }
     uint64_t mmap_addr = libc_base + off_mmap;
-    uint64_t dlopen_addr = libc_base + off_dlopen;
+    uint64_t dlopen_addr = libdl_base + off_dlopen;
+    fprintf(stderr, "[*] mmap=%lx dlopen=%lx (libdl base=%lx)\n",
+            (unsigned long)mmap_addr, (unsigned long)dlopen_addr, (unsigned long)libdl_base);
 
     if (ptrace(PTRACE_ATTACH, g_pid, 0, 0) < 0) {
         fprintf(stderr, "[-] attach failed: %s\n", strerror(errno));

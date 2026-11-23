@@ -730,6 +730,7 @@ void menu() {
     }
     else if (activeTab == 4) {
         ImGui::TextColored(g_DarkMode ? ImVec4(0.70f,0.70f,0.75f,1.0f) : ImVec4(0.30f,0.30f,0.35f,1.0f), "Visual modifiers");
+        ModernToggle("Unlock 120 FPS", &Unlock120);
         ModernToggle("Wallhack / Chams", &shading);
         ModernToggle("Wireframe", &wireframe);
         ImGui::Spacing();

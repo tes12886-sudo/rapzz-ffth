@@ -54,6 +54,17 @@ EGLBoolean hook_eglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
     if (EnableEsp) DrawESP(egl.width, egl.height);
     Aimbott();
 
+    if (Unlock120) {
+        static void* setFps = (void*)-1;
+        static void* setVsync = (void*)-1;
+        if (setFps == (void*)-1)
+            setFps = Il2CppGetMethodOffset(OBFUSCATE("UnityEngine.CoreModule.dll"), OBFUSCATE("UnityEngine"), OBFUSCATE("Application"), OBFUSCATE("set_targetFrameRate"), 1);
+        if (setVsync == (void*)-1)
+            setVsync = Il2CppGetMethodOffset(OBFUSCATE("UnityEngine.CoreModule.dll"), OBFUSCATE("UnityEngine"), OBFUSCATE("QualitySettings"), OBFUSCATE("set_vSyncCount"), 1);
+        if (setFps) ((void(*)(int))setFps)(120);
+        if (setVsync) ((void(*)(int))setVsync)(0);
+    }
+
     ImGui::EndFrame();
     ImGui::Render();
     glViewport(0, 0, io.DisplaySize.x, io.DisplaySize.y);

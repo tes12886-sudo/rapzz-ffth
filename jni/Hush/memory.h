@@ -59,6 +59,7 @@ static int currentStyleIndex = 0;
 
 bool Camera = true;
 bool Aaa = false;
+bool Unlock120 = false;
 
 
 // 瞄准击杀
