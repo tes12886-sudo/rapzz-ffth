@@ -102,10 +102,19 @@ static int ptrace_setregs(struct a64_regs *r) {
     return ptrace(PTRACE_SETREGSET, g_pid, (void *)NT_PRSTATUS, &io);
 }
 
-static int wait_stop(void) {
+// wait for the function-call fault (SIGSEGV at LR=0). Forward unrelated signals
+// (e.g. SIGCHLD raised by pthread_create inside the .so constructor) so we don't
+// mistake them for the return trap and leave the tracee stopped.
+static int wait_call_stop(void) {
     int st = 0;
-    if (waitpid(g_pid, &st, __WALL) < 0) return -1;
-    return WIFSTOPPED(st) ? WSTOPSIG(st) : -1;
+    for (;;) {
+        if (waitpid(g_pid, &st, __WALL) < 0) return -1;
+        if (!WIFSTOPPED(st)) return -1;
+        int sig = WSTOPSIG(st);
+        if (sig == SIGSEGV || sig == SIGTRAP || sig == SIGABRT || sig == SIGILL || sig == SIGBUS)
+            return sig;
+        ptrace(PTRACE_CONT, g_pid, 0, (void *)(long)sig);
+    }
 }
 
 // call a function in the tracee; returns the value left in x0
@@ -119,10 +128,17 @@ static uint64_t call_func(uint64_t func, uint64_t a0, uint64_t a1, uint64_t a2,
     r.sp = (r.sp & ~0xFULL);        // 16-byte align
     ptrace_setregs(&r);
     ptrace(PTRACE_CONT, g_pid, 0, 0);
-    wait_stop();
+    int sig = wait_call_stop();
     struct a64_regs out;
     ptrace_getregs(&out);
+    fprintf(stderr, "[*] call %lx -> x0=%lx (stop sig=%d)\n",
+            (unsigned long)func, (unsigned long)out.regs[0], sig);
     return out.regs[0];
+}
+
+static void detach_run(void) {
+    ptrace(PTRACE_CONT, g_pid, 0, 0);
+    ptrace(PTRACE_DETACH, g_pid, 0, 0);
 }
 
 int main(int argc, char **argv) {
@@ -164,13 +180,13 @@ int main(int argc, char **argv) {
         fprintf(stderr, "[-] attach failed: %s\n", strerror(errno));
         return 1;
     }
-    wait_stop();
+    { int st; waitpid(g_pid, &st, __WALL); }
     fprintf(stderr, "[*] attached\n");
 
     struct a64_regs orig;
     if (ptrace_getregs(&orig) < 0) {
         fprintf(stderr, "[-] getregs failed\n");
-        ptrace(PTRACE_DETACH, g_pid, 0, 0);
+        detach_run();
         return 1;
     }
 
@@ -180,7 +196,7 @@ int main(int argc, char **argv) {
     if ((int64_t)mem <= 0) {
         fprintf(stderr, "[-] mmap in target failed: %lx\n", (unsigned long)mem);
         ptrace_setregs(&orig);
-        ptrace(PTRACE_DETACH, g_pid, 0, 0);
+        detach_run();
         return 1;
     }
 
@@ -194,7 +210,7 @@ int main(int argc, char **argv) {
     if (syscall(__NR_process_vm_writev, g_pid, &local, 1, &remote, 1, 0) != (ssize_t)plen) {
         fprintf(stderr, "[-] process_vm_writev failed: %s\n", strerror(errno));
         ptrace_setregs(&orig);
-        ptrace(PTRACE_DETACH, g_pid, 0, 0);
+        detach_run();
         return 1;
     }
 
@@ -202,9 +218,9 @@ int main(int argc, char **argv) {
     uint64_t handle = call_func(dlopen_addr, mem, 2 /*RTLD_NOW*/, 0, 0, 0, 0, &orig);
     fprintf(stderr, "[+] dlopen handle = %lx\n", (unsigned long)handle);
 
-    // restore original execution state
+    // restore original execution state and make sure the game keeps running
     ptrace_setregs(&orig);
-    ptrace(PTRACE_DETACH, g_pid, 0, 0);
+    detach_run();
 
     if (handle == 0) {
         fprintf(stderr, "[-] dlopen returned NULL (check selinux / path readability)\n");
